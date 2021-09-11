@@ -1,6 +1,7 @@
 use core::ops::Deref;
 use embedded_hal::blocking::i2c::{Read, Write, WriteRead};
 
+use crate::dma::traits::{DMASet, PeriAddress};
 use crate::pac::i2c1;
 use crate::rcc::{Enable, Reset};
 
@@ -68,7 +69,7 @@ where
         } else {
             Self::Fast {
                 frequency,
-                duty_cycle: DutyCycle::Ratio2to1,
+                duty_cycle: DutyCycle::Ratio16to9,
             }
         }
     }
@@ -426,6 +427,37 @@ trait I2cCommon {
     fn send_byte(&self, byte: u8) -> Result<(), Error>;
 
     fn recv_byte(&self) -> Result<u8, Error>;
+}
+
+unsafe impl<I2C, PINS> PeriAddress for I2c<I2C, PINS>
+where
+    I2C: Instance + PeriAddress,
+{
+    #[inline(always)]
+    fn address(&self) -> u32 {
+        self.i2c.address()
+    }
+
+    type MemSize = I2C::MemSize;
+}
+
+impl<I2C, PINS> I2c<I2C, PINS>
+where
+    I2C: Instance + PeriAddress,
+{
+    pub fn start_dma(&mut self, addr: u8) -> Result<(), Error> {
+        self.i2c.cr1.modify(|_, w| w.pe().clear_bit());
+        self.i2c.cr2.write(|w| w.dmaen().enabled());
+        self.i2c.cr1.modify(|_, w| w.pe().set_bit());
+        self.write_bytes(addr, &[])
+    }
+}
+
+unsafe impl<I2C, PINS, STREAM, DIR, const CHANNEL: u8> DMASet<STREAM, DIR, CHANNEL>
+    for I2c<I2C, PINS>
+where
+    I2C: Instance + DMASet<STREAM, DIR, CHANNEL>,
+{
 }
 
 impl<I2C, PINS> I2cCommon for I2c<I2C, PINS>
